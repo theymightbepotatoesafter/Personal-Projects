@@ -12,6 +12,7 @@ import os
 import pickle
 from typing import Set, List, Tuple
 from operator import attrgetter
+from multiprocessing import Queue
 from multiprocessing.connection import Connection, Client
 import argparse
 import logging
@@ -217,7 +218,11 @@ class FrameBuffer(object):
 class cmdDisplay(object):
 
     def __init__(self, height: int, width: int, 
-                    buffer_len: int, fill_char: str = ' ', **kwargs):
+                    buffer_len: int = 5, fill_char: str = ' ', **kwargs):
+        """
+            cmdDisplay sets the size and displays Frames that are held
+            in the FrameBuffer.
+        """
         self.height = height
         self.width = width
         self.master_frame = Frame(height, width)

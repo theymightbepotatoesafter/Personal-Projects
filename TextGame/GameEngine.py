@@ -1,57 +1,46 @@
 """
-Game Engine v0.1
+Game Engine v0.2
 
 Author  : Christian Carter
-Date    : 10 June 2021
+Date    : 18 Aug 2021
 
 Code for mkaing all of the other code talk to eachother.
 """
 version_info = "v0.2"
-from typing import Dict
 from Display import *
-from IO import *
+from multiprocessing import Process, set_start_method
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-class GameInstance(object):
+class GameInstance():
 
-    def __init__(self, size_screen: Tuple[int, int]):
+    def __init__(self, screen_size: Tuple[int, int], max_displays: int = 3):
         """
             A GameInstance object is the backbone of the game.
-            It routs Instruction objects to and from the Input 
-            and Output cmdDisplay objects. It essentially fun-
-            ctions as the hardware the game is played on.
-            """
+            It routs Instruction objects to and from the Input
+            and Output cmdDisplay objects. It essentially funcitons
+            as the hardware the game is played on.
+        """
         self.__path = os.getcwd()
-        self.display_screen_count: int = -1
-# Display_0 = cmdDisplay(size_screen[0], size_screen[1], 10, cls = self)
-        self.displays: Dict[int, Output] = {}
-        self.size = size_screen
-        
-        #########################
-        #
-        #  Start the server for the information passing here
-        #  instead of doing it through IO
-        #
-        #########################
+        self.display_count: int = 0
+        self.max_displays = max_displays
+        self.input_count: int = 0
+        self.size = screen_size
+        self.displays: List[Process] = []
 
-        # one display screen, for now
-        # one input screen
+    def startGame(self):
+        """
+            Starts the game from the GameEngine object using the
+            multiprocessing library. Each Display and InputScreen
+            is a separate process that communicates with the
+            GameEngine object
+        """
+        display0 = Process(target = cmdDisplay, args = (
+            self.size[0], self.size[1]), kwargs = {'name': self.display_count})
+        input0 = Process
 
-    def get_display_num(self) -> int:
-        self.display_screen_count += 1
-        return self.display_screen_count
 
-    def gameStart(self):
-        inputScreen = Input(50, 2000)
-        display_num = self.get_display_num()
-        self.displays[display_num] = Output(50, 2001) 
-        self.displays[display_num].send((self.size, display_num))
-        
-if __name__ == "__main__":
-    new_game = GameInstance((100, 100))
-    new_game.gameStart()
-    while 1:
-        continue
+if __name__ == '__main__':
+    set_start_method('fork')
