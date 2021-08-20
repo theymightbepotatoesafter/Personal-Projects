@@ -9,6 +9,7 @@ Code for mkaing all of the other code talk to eachother.
 version_info = "v0.2"
 from Display import *
 from multiprocessing import Process, set_start_method
+import InputScreen
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -37,10 +38,19 @@ class GameInstance():
             is a separate process that communicates with the
             GameEngine object
         """
-        display0 = Process(target = cmdDisplay, args = (
-            self.size[0], self.size[1]), kwargs = {'name': self.display_count})
-        input0 = Process
+        input_queue = Queue(5)
+        output_queue = Queue(5)
+        display0 = Process(target = cmdDisplay, args = (self.size[0], self.size[1], output_queue), 
+        kwargs = {'name': self.display_count})
+        input0 = Process(target = InputScreen.main, args = input_queue)
 
+        # I don't think that the processes will spawn cmd lines.
+        # I may need to write some code to pass the processes to 
+        # individual cmd lines or completely change the way that
+        # the processes are connected, maybe through Pipes as I 
+        # did before.
 
 if __name__ == '__main__':
-    set_start_method('fork')
+    #set_start_method('forkserver', force = True)
+    game = GameInstance((40, 40))
+    game.startGame()

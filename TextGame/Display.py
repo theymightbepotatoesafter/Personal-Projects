@@ -12,11 +12,9 @@ import os
 import pickle
 from typing import Set, List, Tuple
 from operator import attrgetter
+from queue import Empty
 from multiprocessing import Queue
-from multiprocessing.connection import Connection, Client
-import argparse
 import logging
-
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -24,12 +22,13 @@ log.setLevel(logging.DEBUG)
 
 class DisplayError(Exception):
     def __init__(self):
-        pass
+        raise NotImplementedError("Base class, should not be called")
 
 class NoBufferSpace(DisplayError):
-    def __init__(self, frame_buff: 'FrameBuffer', message: str):
-            self.name = frame_buff
-            self.message = message
+    def __init__(self, buffer: 'FrameBuffer'):
+        self.buffer = buffer
+    def __str__(self):
+        return f"No space in FrameBuffer {self.buffer}"
 
 class Cell(object):
     
@@ -157,52 +156,65 @@ class FrameBuffer(object):
                 depends on self.frame_index.Increment self.frame_index 
                 with FrameBuffer.next()
 
-############################################################################
-#                                                                          #
-# Every Display object must have a FrameBuffer object in order to function #
-#                                                                          #
-############################################################################
+         ############################################################################
+         #                                                                          #
+         # Every Display object must have a FrameBuffer object in order to function #
+         #                                                                          #
+         ############################################################################
         """
         self.max_frames = max_frames
         self.parent = display
+        self.buffer_state = False # sets whether or not the frame buffer exists
         self.buffer = self.generate_buffer(buffer_len, self.parent, frames)
         log.debug(self.buffer)
-        self.display_index = 0
-        assert_err_txt = f"""Buffer lengths are different by 
-        {buffer_len - len(self.buffer)}!\nbuffer_len: {buffer_len} 
-        len(self.buffer): {len(self.buffer)}""".strip()
-        assert buffer_len == len(self.buffer), assert_err_txt
+        self.display_index = 0 # Beginning index for fetching Frame objects
+        assert_err_txt = f"""
+        Buffer lengths are different by {buffer_len - len(self.buffer)}!
+        buffer_len: {buffer_len} len(self.buffer): {len(self.buffer)}""".strip()
+        assert buffer_len == len(self.buffer), assert_err_txt # making sure buffer created right
         self.len = buffer_len
 
-    def generate_buffer(self, buffer_len: int, display: 'cmdDisplay', 
-                        frames: List[Frame]) -> List[Tuple[Frame, bool]]:
+    def generate_buffer(self, buffer_len: int, display: 'cmdDisplay', frames: List[Frame]):
         """
             If the frame buffer is not pre-filled this function will be
             called and will generate the frame buffer to the specified length
         """
+        if self.buffer_state == True:
+            return
         log.debug("running generate_buffer")
         buffer_list = []
         height, width = display.size()
+        
         assert len(frames) <= buffer_len, 'Too many initializing Frame objects'
-        init_frames = frames
-        for frame in init_frames:
+        
+        for frame in frames:
             buffer_list.append((frame, True))
         while len(buffer_list) < buffer_len:
             new_frame = Frame(height, width)
             buffer_list.append((new_frame, False))
-        return buffer_list
+        
+        self.buffer = buffer_list
+        self.buffer_state = True
+        return
+    
+    def is_full(self) -> bool:
+        """ Returns whether or not the FrameBuffer is full """
+        for frame in self.buffer:
+            if not frame[1]:
+                return False
+        return True
 
     def put_frame(self, new_frame: Frame):
         """ Put a frame in the first open slot of the FrameBuffer object """
-        assert len(self.buffer) == self.len, 'Buffer lengths are different!'
+        if self.is_full():
+            raise NoBufferSpace(self)
+
         for i in range(self.len):
             test_frame = self.buffer[(self.display_index + i) % self.len]
             if not test_frame[1]:
                 test_frame[0] = new_frame
                 test_frame[1] = True
                 return
-        raise NoBufferSpace(self, 
-        f"FrameBuffer:{self} on cmdDisplay:{self.parent} has run out of space")
                     
     def get_frame(self) -> Frame:
         """ Return the frame from the current frame index """
@@ -217,7 +229,7 @@ class FrameBuffer(object):
         
 class cmdDisplay(object):
 
-    def __init__(self, height: int, width: int, 
+    def __init__(self, height: int, width: int, queue: Queue,
                     buffer_len: int = 5, fill_char: str = ' ', **kwargs):
         """
             cmdDisplay sets the size and displays Frames that are held
@@ -225,6 +237,7 @@ class cmdDisplay(object):
         """
         self.height = height
         self.width = width
+        self.queue = queue
         self.master_frame = Frame(height, width)
         self.frame_buffer = FrameBuffer(buffer_len, self)
         self.fill_char = fill_char
@@ -242,25 +255,23 @@ class cmdDisplay(object):
     def size(self) -> Tuple[int, int]:
         return (self.height, self.width)
 
-    def display(self):
+    def update_frame_buffer(self):
+        try:
+            data = pickle.loads(self.queue.get(True, .1))
+            assert type(data) == Frame, "Data needs to be a Frame object"
+            try:
+                self.frame_buffer.put_frame(data)
+                self.update_frame_buffer()
+            except NoBufferSpace:
+                return
+        except Empty:
+            log.debug("No data available in time frame")
+
+    def update_display(self):
         cur_frame = self.frame_buffer.get_frame()
         self.frame_buffer.next()
+        self.update_frame_buffer()
         print(str(cur_frame))
-
-def cli() -> object:
-    """ Get arguments from command line """
-    
-    log.info("starting parser")
-    parser = argparse.ArgumentParser(description = "Linkage argument parser")
-    parser.add_argument("--name", type = str, required = True, 
-                        help = "address name")
-    parser.add_argument("--num", type = int, required = True, 
-                        help = "address int")
-    parser.add_argument("--auth", type = str, required = True, 
-                        help = "auth key")
-    args = parser.parse_args()
-    log.info(f"args got {args}")
-    return args
 
 def buildCompFrame(frame: List[Frame]) -> Frame:
     """
@@ -271,20 +282,3 @@ def buildCompFrame(frame: List[Frame]) -> Frame:
     for f in sorted(frame, key = attrgetter('priority')):
         master_frame = master_frame + f
     return master_frame
-
-if __name__ == "__main__":
-    try:
-        args = cli()
-    except Exception:
-        args = {"name": "localhost", "num": 2001}
-    client = Client((args.name, args.num))
-    info_present = client.poll()
-    while info_present == False:
-        info_present = client.poll()
-        log.info("no info present")
-    data: Tuple[Tuple[int, int], int] = pickle.loads(client.recv())
-    display = cmdDisplay(data[0][0], data[0][1], 10, name = data[1])
-    assert display.size() == data[0], f"""display_{display.name()} 
-    is not the correct size"""
-    display.apply()
-
