@@ -8,13 +8,16 @@ Displays the currently selected screen onto the command line.
 Contains classes that define what a screen is and how it should be displayed.
 """
 version_info = "v0.2"
+
 import os
+import time
 import pickle
+import logging
 from typing import Set, List, Tuple
 from operator import attrgetter
-from queue import Empty
-from multiprocessing import Queue
-import logging
+from multiprocessing.connection import Connection, Listener, wait
+from Instruction import DisplayInstruction, DataRequest, Instruction
+
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -33,13 +36,14 @@ class NoBufferSpace(DisplayError):
 class Cell(object):
     
     def __init__(self, x_pos: int, y_pos: int, value: str = ''):
-        """A cell on the screen. Contains row, column, and value information"""
+        """ A cell on the screen. Contains row, column, and value information """
         self.x = x_pos
         self.y = y_pos
         self.value = value
 
     def write(self, value: str):
-        """Writes a value to the cell"""
+        """ Writes a value to the cell """
+        assert type(value) == str, "Cell value must be string"
         self.value = value
 
 class Frame(object):
@@ -55,7 +59,7 @@ class Frame(object):
         self.cells: List[List[Cell]] = []
         self.height = height
         self.width = width
-        self.pos = pos_LHC
+        self.pos = pos_LHC # position top left-hand corner
         self.row_start = pos_LHC[0]
         self.col_start = pos_LHC[1]
         for row in range(height):
@@ -94,6 +98,7 @@ class Frame(object):
         return secondary
 
     def __str__(self) -> str:
+        """ Returns Frame as a string """
         return_str = ""
         for row in self.cells:
             for cell in row:
@@ -101,7 +106,7 @@ class Frame(object):
         return return_str
 
     def intersect(self, other: 'Frame') -> Tuple[bool, Tuple[Set, Set]]:
-        """returns whether the two Frame objects intersect"""
+        """ Returns whether the two Frame objects intersect """
         self_row_index = set([y for y in range(
             self.row_start, self.row_start + self.height)])
         self_col_index = set([x for x in range(
@@ -122,11 +127,11 @@ class Frame(object):
         return False, sets
 
     def size(self) -> Tuple[int, int]:
-        """returns a tuple of height and width"""
+        """ Returns a tuple of height and width """
         return (self.height, self.width)
 
     def fill(self, fill_char: str):
-        """fills the Frame object with the fill character"""
+        """ Fills the Frame object with the fill character """
         for row in self.cells:
             for cell in row:
                 cell.write(fill_char)
@@ -195,7 +200,7 @@ class FrameBuffer(object):
         
         self.buffer = buffer_list
         self.buffer_state = True
-        return
+        return buffer_list
     
     def is_full(self) -> bool:
         """ Returns whether or not the FrameBuffer is full """
@@ -223,55 +228,9 @@ class FrameBuffer(object):
     def next(self):
         """ Shift the frame buffer by one """
         # sets current frame to empty/invalid
-        self.buffer[self.display_index][1] = False
+        self.buffer[self.display_index] = self.buffer[self.display_index], False
         # increments display_index 
         self.display_index = (self.display_index + 1) % self.len 
-        
-class cmdDisplay(object):
-
-    def __init__(self, height: int, width: int, queue: Queue,
-                    buffer_len: int = 5, fill_char: str = ' ', **kwargs):
-        """
-            cmdDisplay sets the size and displays Frames that are held
-            in the FrameBuffer.
-        """
-        self.height = height
-        self.width = width
-        self.queue = queue
-        self.master_frame = Frame(height, width)
-        self.frame_buffer = FrameBuffer(buffer_len, self)
-        self.fill_char = fill_char
-        self.kwargs = kwargs
-        
-    def name(self) -> int:
-        try:
-            return self.kwargs['name']
-        except KeyError:
-            return 0
-
-    def apply(self):
-        os.system(f"mode con: cols={self.width} lines={self.height}")
-
-    def size(self) -> Tuple[int, int]:
-        return (self.height, self.width)
-
-    def update_frame_buffer(self):
-        try:
-            data = pickle.loads(self.queue.get(True, .1))
-            assert type(data) == Frame, "Data needs to be a Frame object"
-            try:
-                self.frame_buffer.put_frame(data)
-                self.update_frame_buffer()
-            except NoBufferSpace:
-                return
-        except Empty:
-            log.debug("No data available in time frame")
-
-    def update_display(self):
-        cur_frame = self.frame_buffer.get_frame()
-        self.frame_buffer.next()
-        self.update_frame_buffer()
-        print(str(cur_frame))
 
 def buildCompFrame(frame: List[Frame]) -> Frame:
     """
@@ -282,3 +241,106 @@ def buildCompFrame(frame: List[Frame]) -> Frame:
     for f in sorted(frame, key = attrgetter('priority')):
         master_frame = master_frame + f
     return master_frame
+
+class cmdDisplay(object):
+
+    def __init__(self, height: int, width: int, buffer_len: int = 5, 
+            fill_char: str = ' ', **kwargs):
+        """
+            cmdDisplay sets the size and displays Frames that are held
+            in the FrameBuffer.
+        """
+        self.height = height
+        self.width = width
+        self.master_frame = Frame(height, width)
+        self.frame_buffer = FrameBuffer(buffer_len, self)
+        self.fill_char = fill_char
+        self.kwargs = kwargs
+        
+    def name(self) -> int:
+        """ Sets the internal name of the display """
+        try:
+            return self.kwargs['name']
+        except KeyError:
+            return 0
+
+    def apply(self):
+        """ Applies width and height options to window """
+        os.system(f"mode con: cols={self.width} lines={self.height}")
+
+    def size(self) -> Tuple[int, int]:
+        return (self.height, self.width)
+
+    def change_size(self, size: Tuple[int, int]):
+        self.height = size[0]
+        self.width = size[1]
+        self.apply()
+
+    def update_frame_buffer(self, data: Frame = None):
+        if data != None:
+            assert type(data) == Frame, "Data needs to be a Frame object"
+        try:
+            self.frame_buffer.put_frame(data)
+            #self.update_frame_buffer()
+        except NoBufferSpace:
+            return
+
+    def update_display(self):
+        cur_frame = self.frame_buffer.get_frame()
+        self.frame_buffer.next()
+        #self.update_frame_buffer()
+        print(str(cur_frame))
+
+
+
+def getInstruction(conn : Connection):
+    """ Instruction decoder """
+    data: Instruction = conn.recv()
+    keys = ID.keys()
+    assert type(data) == Instruction, 'Wrong Instruction type'
+    assert data.id in keys, 'Unknown ID'
+    args = data.args
+    kw = data.kwargs
+    try:
+        if data.id == (keys[0] or keys[1] or keys[3]):
+            if data.id == keys[0]:
+                assert (type(args[0]) and type(args[1])) == int, 'Wrong data type for cmdDisplay'
+                ID[data.id](args[0], args[1])
+            if data.id == keys[1]:
+                assert type(args[0]) == Tuple, 'Wrong data type for change_size'
+                ID[data.id](args[0])
+            if data.id == keys[3]:
+                assert type(args) == Frame, 'Wrong data type for FrameBuffer'
+                ID[data.id](args[0])
+        if data.id == keys[5]:
+            conn.send(data.load_data(ID[data.id]))
+        else:
+            ID[data.id]
+    except Exception as e:
+        conn.send(e)
+
+if __name__ == "__main__":
+    address = ('localhost', 1000)
+    authkey = b'I hope this works'
+    listener = Listener(address)
+    conn = listener.accept()
+    log.info(f"Connection accepted from {listener.last_accepted}")
+    queue = wait([conn])
+    for connection in queue:
+        log.info("before data")
+        data = conn.recv()
+        log.info('after data')
+        log.info(data)
+    display = cmdDisplay(data[0], data[1])
+    log.info(display)
+    ID = {  'initializeDisplay': display, 
+            'changeDisplaySize': display.change_size,
+            'updateDisplay': display.update_display(), 
+            'updateFrameBuffer': display.update_frame_buffer,
+            'resetDisplay': display.apply(),
+            'returnSize': display.size()
+        }
+    conn.send('Waiting for instructions to display')
+    while True:
+        time.sleep(1)
+        getInstruction(conn)

@@ -4,7 +4,9 @@ IO v0.1
 Author  : Christian Carter
 Date    : 13 June 2021
 
-Contains classes that connect the game engine with the input and the display. 
+Contains classes that connect the game engine with the input and the display.
+
+Depreciated. IO handeled in the GameEngine code with Queues from multiprocessing
 """
 version_info = "v0.2"
 from multiprocessing import connection

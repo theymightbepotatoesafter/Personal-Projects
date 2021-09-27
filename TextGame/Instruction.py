@@ -19,10 +19,37 @@ log.setLevel(logging.DEBUG)
 
 class Instruction(object):
 
-    def __init__(self):
-        raise NotImplementedError("This is a base class and should not be called")
+    def __init__(self, identifier: str):
+        self.id = identifier
 
-class testInstruction(Instruction):
+displayID = [   'initializeDisplay', 
+                'changeDisplaySize', 
+                'updateDisplay', 
+                'updateFrameBuffer',
+                'resetDisplay'
+            ]
 
-    def __init__(self, data: Any):
+class DisplayInstruction(Instruction):
+
+    def __init__(self, identifier: str, display_num: int, data: Any = None, *args, **kwargs):
+        super().__init__(identifier)
+        self.to = display_num
+        self.args = args
+        self.kwargs = kwargs
         self.data = data
+
+class DataRequest(Instruction):
+
+    def __init__(self, requestee: int, requester, requested, data = None):
+        self.to = requestee
+        self.give = requester
+        self.id = requested
+        self.data = data
+
+    def load_data(self, data):
+        self.data = data
+
+class InstructionDecoder:
+
+    def __init__(self, identifier: str):
+        self.id = identifier

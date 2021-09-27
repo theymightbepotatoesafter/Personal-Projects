@@ -1,15 +1,18 @@
 """
-Game Engine v0.2
+Game Engine v0.3
 
 Author  : Christian Carter
 Date    : 18 Aug 2021
 
 Code for mkaing all of the other code talk to eachother.
 """
-version_info = "v0.2"
-from Display import *
-from multiprocessing import Process, set_start_method
-import InputScreen
+version_info = "v0.3"
+import os
+import time
+import logging
+from typing import List, Tuple
+from Instruction import *
+from multiprocessing.connection import Client, Connection
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -25,32 +28,93 @@ class GameInstance():
             as the hardware the game is played on.
         """
         self.__path = os.getcwd()
+        log.info(f"cwd is: {self.__path}")
         self.display_count: int = 0
         self.max_displays = max_displays
         self.input_count: int = 0
         self.size = screen_size
-        self.displays: List[Process] = []
+        self.displays: List[Connection] = []
+        self.inputs: List[Connection] = []
 
-    def startGame(self):
+    def create_UI(self, program: int):
         """
-            Starts the game from the GameEngine object using the
-            multiprocessing library. Each Display and InputScreen
-            is a separate process that communicates with the
-            GameEngine object
+            Starts a new instance of cmd and runs either Display.py, 0, 
+            or InputScreen.py, 1
         """
-        input_queue = Queue(5)
-        output_queue = Queue(5)
-        display0 = Process(target = cmdDisplay, args = (self.size[0], self.size[1], output_queue), 
-        kwargs = {'name': self.display_count})
-        input0 = Process(target = InputScreen.main, args = input_queue)
+        programs = ['Display.py', 'InputScreen.py']
+        os.system(f"start {programs[program]}")
 
-        # I don't think that the processes will spawn cmd lines.
-        # I may need to write some code to pass the processes to 
-        # individual cmd lines or completely change the way that
-        # the processes are connected, maybe through Pipes as I 
-        # did before.
+    def connect_display(self, port: int):
+        """
+            Connects Display to GameEngine
+        """
+        address = ("localhost", port)
+        authkey = b'I hope this works'
+        self.displays.append(Client(address))
+        self.display_count += 1
+
+    def connect_input(self, port: int):
+        """
+            Connects InputScreen to GameEngine
+        """
+        address = ("localhost", port)
+        authkey = b'I hope this works'
+        self.inputs.append(Client(address))
+        self.input_count += 1
+
+    def start_engine(self):
+        """
+            Starts the GameEngine object using the multiprocessing 
+            library. Each Display and InputScreen is a separate 
+            process that communicates with the GameEngine.
+        """
+        self.create_UI(0)
+        log.info("Created Display")
+        self.connect_display(1000)
+        self.displays[0].send(self.size)
+        self.create_UI(1)
+        log.info("Created InputScreen")
+        self.connect_input(2000)
+        self.inputs[0].send('Test Input')
+        log.info(self.inputs[0].recv())
+        log.info(self.displays[0].recv())
+
+    def UPDATE(self, instruction: DisplayInstruction):
+        for id in range(len(self.displays)):
+            if instruction.to == id:
+                self.displays[id].send(instruction)
+
+    def check_inbox(self):
+        for conn in self.inputs:
+            try:
+                
+                data = conn.recv()
+                if type(data) == DataRequest:
+                    self.displays[data.to].send(data)
+                if type(data) == DisplayInstruction:
+                    self.UPDATE(data)
+            except Exception as e:
+                log.info(e)
+                return
+        
+        for conn in self.displays:
+            try:
+                data = conn.recv()
+                if type(data) == DataRequest:
+                    self.inputs[data.give].send(data)
+            except Exception as e:
+                log.info(e)
+                return
+
+    def pass_instruction(self):
+        pass
+
+def game_loop(game: GameInstance):
+    game.check_inbox()
 
 if __name__ == '__main__':
     #set_start_method('forkserver', force = True)
     game = GameInstance((40, 40))
-    game.startGame()
+    game.start_engine()
+    while 1:
+        game_loop(game)
