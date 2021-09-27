@@ -12,7 +12,9 @@ import time
 import logging
 from typing import List, Tuple
 from Instruction import *
-from multiprocessing.connection import Client, Connection
+from Display import *
+#from InputScreen import *
+from multiprocessing.connection import Client, Connection, wait
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -84,14 +86,18 @@ class GameInstance():
             if instruction.to == id:
                 self.displays[id].send(instruction)
 
+    def UPDATE_ALL(self, instruction: DisplayInstruction):
+        for display in self.displays:
+            display.send(instruction)
+
     def check_inbox(self):
         for conn in self.inputs:
             try:
-                
                 data = conn.recv()
-                if type(data) == DataRequest:
+                log.info(type(data))
+                if isinstance(data, DataRequest):
                     self.displays[data.to].send(data)
-                if type(data) == DisplayInstruction:
+                if isinstance(data, DisplayInstruction):
                     self.UPDATE(data)
             except Exception as e:
                 log.info(e)
@@ -100,7 +106,7 @@ class GameInstance():
         for conn in self.displays:
             try:
                 data = conn.recv()
-                if type(data) == DataRequest:
+                if isinstance(data, DataRequest):
                     self.inputs[data.give].send(data)
             except Exception as e:
                 log.info(e)
@@ -111,10 +117,13 @@ class GameInstance():
 
 def game_loop(game: GameInstance):
     game.check_inbox()
+    game.UPDATE_ALL(DisplayInstruction('updateDisplay'))
+    time.sleep(2)
 
 if __name__ == '__main__':
     #set_start_method('forkserver', force = True)
     game = GameInstance((40, 40))
     game.start_engine()
+    game.check_inbox()
     while 1:
         game_loop(game)

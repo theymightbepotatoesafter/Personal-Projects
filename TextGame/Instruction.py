@@ -19,8 +19,15 @@ log.setLevel(logging.DEBUG)
 
 class Instruction(object):
 
-    def __init__(self, identifier: str):
+    def __init__(self, identifier: str, data: Any):
+        self.data = data
         self.id = identifier
+
+    def get_id(self):
+        return self.id
+
+    def get_data(self):
+        return self.data
 
 displayID = [   'initializeDisplay', 
                 'changeDisplaySize', 
@@ -31,12 +38,11 @@ displayID = [   'initializeDisplay',
 
 class DisplayInstruction(Instruction):
 
-    def __init__(self, identifier: str, display_num: int, data: Any = None, *args, **kwargs):
-        super().__init__(identifier)
+    def __init__(self, identifier: str, display_num: int = 0, data: Any = None, *args, **kwargs):
+        super().__init__(identifier, data)
         self.to = display_num
         self.args = args
         self.kwargs = kwargs
-        self.data = data
 
 class DataRequest(Instruction):
 
@@ -48,6 +54,9 @@ class DataRequest(Instruction):
 
     def load_data(self, data):
         self.data = data
+
+    def unload_data(self):
+        return super().get_data()
 
 class InstructionDecoder:
 

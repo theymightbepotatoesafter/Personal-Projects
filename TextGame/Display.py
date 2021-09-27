@@ -21,7 +21,7 @@ from Instruction import DisplayInstruction, DataRequest, Instruction
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.CRITICAL)
 
 class DisplayError(Exception):
     def __init__(self):
@@ -215,10 +215,9 @@ class FrameBuffer(object):
             raise NoBufferSpace(self)
 
         for i in range(self.len):
-            test_frame = self.buffer[(self.display_index + i) % self.len]
-            if not test_frame[1]:
-                test_frame[0] = new_frame
-                test_frame[1] = True
+            test_frame, status = self.buffer[(self.display_index + i) % self.len]
+            if not status:
+                self.buffer[(self.display_index + i) % self.len] = (new_frame, True)
                 return
                     
     def get_frame(self) -> Frame:
@@ -278,7 +277,8 @@ class cmdDisplay(object):
 
     def update_frame_buffer(self, data: Frame = None):
         if data != None:
-            assert type(data) == Frame, "Data needs to be a Frame object"
+            pass
+            #assert isinstance(data, Frame), "Data needs to be a Frame object"
         try:
             self.frame_buffer.put_frame(data)
             #self.update_frame_buffer()
@@ -291,31 +291,38 @@ class cmdDisplay(object):
         #self.update_frame_buffer()
         print(str(cur_frame))
 
-
-
 def getInstruction(conn : Connection):
     """ Instruction decoder """
-    data: Instruction = conn.recv()
-    keys = ID.keys()
-    assert type(data) == Instruction, 'Wrong Instruction type'
-    assert data.id in keys, 'Unknown ID'
-    args = data.args
-    kw = data.kwargs
+    instruction: Instruction = conn.recv()
+    keys = IDkeys
+    id = instruction.get_id()
+    data = instruction.get_data()
+    #assert type(data) == Instruction, 'Wrong Instruction type'
+    assert id in keys, 'Unknown ID'
     try:
-        if data.id == (keys[0] or keys[1] or keys[3]):
-            if data.id == keys[0]:
-                assert (type(args[0]) and type(args[1])) == int, 'Wrong data type for cmdDisplay'
-                ID[data.id](args[0], args[1])
-            if data.id == keys[1]:
-                assert type(args[0]) == Tuple, 'Wrong data type for change_size'
-                ID[data.id](args[0])
-            if data.id == keys[3]:
-                assert type(args) == Frame, 'Wrong data type for FrameBuffer'
-                ID[data.id](args[0])
-        if data.id == keys[5]:
-            conn.send(data.load_data(ID[data.id]))
+        args = instruction.args
+        kw = instruction.kwargs
+    except Exception as e:
+        log.info(e)
+        pass
+    try:
+        if id == keys[0]:
+            assert (type(args[0]) and type(args[1])) == int, 'Wrong data type for cmdDisplay'
+            ID[id](args[0], args[1])
+        if id == keys[1]:
+            assert type(args[0]) == Tuple, 'Wrong data type for change_size'
+            ID[id](args[0])
+        if id == keys[3]:
+            log.info(type(data))
+            #assert isinstance(data.data), 'Wrong data type for FrameBuffer'
+            ID[id](data)
+        if id == keys[5]:
+            data = ID[id]()
+            instruction.load_data(data)
+            conn.send(instruction)
         else:
-            ID[data.id]
+            ID[id]()
+            conn.send(1)
     except Exception as e:
         conn.send(e)
 
@@ -335,12 +342,13 @@ if __name__ == "__main__":
     log.info(display)
     ID = {  'initializeDisplay': display, 
             'changeDisplaySize': display.change_size,
-            'updateDisplay': display.update_display(), 
+            'updateDisplay': display.update_display, 
             'updateFrameBuffer': display.update_frame_buffer,
-            'resetDisplay': display.apply(),
-            'returnSize': display.size()
+            'resetDisplay': display.apply,
+            'returnSize': display.size
         }
+    IDkeys = list(ID.keys())
     conn.send('Waiting for instructions to display')
     while True:
-        time.sleep(1)
+        #time.sleep(1)
         getInstruction(conn)

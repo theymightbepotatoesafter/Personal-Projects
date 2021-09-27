@@ -105,9 +105,9 @@ if __name__ == "__main__":
     for connection in queue:
         log.info(conn.recv())
     conn.send('Waiting for instructions to input')
-    time.sleep(2)
-    conn.send(DataRequest(0, 0, 5))
+    #time.sleep(2)
+    conn.send(DataRequest(0, 0, 'returnSize'))
     data = conn.recv()
     assert type(data) == DataRequest, 'Something got fucked up'
-    height, width = DataRequest.data
+    height, width = data.unload_data()
     main(conn)
