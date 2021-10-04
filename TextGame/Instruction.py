@@ -1,64 +1,40 @@
 """
-Instruction Set v0.2
+Instruction v0.4
 
 Author  : Christian Carter
-Date    : 19 Aug 2021
+Date    : 30 Sep, 2021
 
-Code for the instruction set that packages the input
-screen information to the game engine to be displayed
+Instructions to be sent to and from the game engine
 """
+version_info = 'v0.4'
 
-version_info = "v0.2"
-import logging
-from typing import Any, List, Dict
-import pickle
-
-logging.basicConfig()
-log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+from typing import Any
 
 class Instruction(object):
 
-    def __init__(self, identifier: str, data: Any):
-        self.data = data
-        self.id = identifier
-
-    def get_id(self):
-        return self.id
-
-    def get_data(self):
-        return self.data
-
-displayID = [   'initializeDisplay', 
-                'changeDisplaySize', 
-                'updateDisplay', 
-                'updateFrameBuffer',
-                'resetDisplay'
-            ]
-
-class DisplayInstruction(Instruction):
-
-    def __init__(self, identifier: str, display_num: int = 0, data: Any = None, *args, **kwargs):
-        super().__init__(identifier, data)
-        self.to = display_num
+    def __init__(self, task: str, args: Any = None, to: str = 'displayEngine'):
+        self.to = to
+        self.task = task
         self.args = args
-        self.kwargs = kwargs
+    
+    def __repr__(self) -> str:
+        return f'Instruction(task: {self.task}, arguments: {self.args}, destination: {self.to}'
 
-class DataRequest(Instruction):
+    def set_destination(self, destination):
+        self.to = destination
+    
+    def destination(self) -> str:
+        return self.to
 
-    def __init__(self, requestee: int, requester, requested, data = None):
-        self.to = requestee
-        self.give = requester
-        self.id = requested
-        self.data = data
+    def get_task(self):
+        return self.task
 
-    def load_data(self, data):
-        self.data = data
+    def set_task(self, task):
+        self.task = task
 
-    def unload_data(self):
-        return super().get_data()
+    def get_args(self):
+        return self.args
 
-class InstructionDecoder:
+    def set_args(self, args):
+        self.args = args
 
-    def __init__(self, identifier: str):
-        self.id = identifier

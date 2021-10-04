@@ -22,7 +22,7 @@ log.setLevel(logging.DEBUG)
 
 class GameInstance():
 
-    def __init__(self, screen_size: Tuple[int, int], max_displays: int = 3):
+    def __init__(self, screen_size: Tuple[int, int], timeout: float = 0.2, max_displays: int = 3):
         """
             A GameInstance object is the backbone of the game.
             It routs Instruction objects to and from the Input
@@ -37,6 +37,7 @@ class GameInstance():
         self.size = screen_size
         self.displays: List[Connection] = []
         self.inputs: List[Connection] = []
+        self.timeout: float = timeout
 
     def create_UI(self, program: int):
         """
@@ -82,16 +83,16 @@ class GameInstance():
         log.info(self.displays[0].recv())
 
     def UPDATE(self, instruction: DisplayInstruction):
-        for id in range(len(self.displays)):
-            if instruction.to == id:
-                self.displays[id].send(instruction)
+            self.displays[instruction.to].send(instruction)
 
     def UPDATE_ALL(self, instruction: DisplayInstruction):
         for display in self.displays:
             display.send(instruction)
 
     def check_inbox(self):
-        for conn in self.inputs:
+        """ Checks the input connections for any data """
+        ready = wait((self.inputs + self.displays), self.timeout)
+        for conn in ready:
             try:
                 data = conn.recv()
                 log.info(type(data))
