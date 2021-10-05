@@ -18,7 +18,7 @@ class Instruction(object):
         self.args = args
     
     def __repr__(self) -> str:
-        return f'Instruction(task: {self.task}, arguments: {self.args}, destination: {self.to}'
+        return f'Instruction(task: {self.task}, arguments: {self.args}, destination: {self.to})'
 
     def set_destination(self, destination):
         self.to = destination
@@ -26,7 +26,7 @@ class Instruction(object):
     def destination(self) -> str:
         return self.to
 
-    def get_task(self):
+    def get_task(self) -> str:
         return self.task
 
     def set_task(self, task):
@@ -37,4 +37,3 @@ class Instruction(object):
 
     def set_args(self, args):
         self.args = args
-

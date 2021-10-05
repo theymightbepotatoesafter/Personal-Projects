@@ -15,6 +15,7 @@ import time
 from typing import List, Tuple
 from Instruction import *
 
+
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -39,6 +40,12 @@ class NoBufferSpace(DisplayError):
     def __str__(self):
         return f'No buffer space in buffer {self.disp}'
 
+class FrameBeingDrawn(DisplayError):
+    def __init__(self, frame: 'Frame'):
+        self.frame = frame
+    def __str__(self):
+        return f'Frame is in use. Please call Draw.{self.frame}.stop() before proceeding'
+
 class Cell:
     """ Smallest unit of the display. Holds one character """
     def __init__(self, value: str = ' '):
@@ -52,7 +59,7 @@ class Cell:
 
 class Frame(object):
     """ Frames hold cells and are displayed with the display """
-    def __init__(self, size: Tuple[int, int], draw: bool = True):
+    def __init__(self, size: Tuple[int, int], draw: bool = False):
         self.h, self.w = size
         self.cells: List[List[Cell]] = []
         self.string: str = ''
@@ -61,49 +68,77 @@ class Frame(object):
             for col in range(self.w):
                 row.append(Cell())
             self.cells.append(row)
-        if draw:
-            self.Draw = self.Draw(self)
+        self.draw = draw
 
     def __add__(self, other):
+        assert self.draw == False, f'Frame is being drawn'
         assert isinstance(other, Sprite), 'Addition must be Frame + Sprite'
         for row in range(other.y, other.y + other.h):
             for col in range(other.x, other.x + other.w):
                 self.cells[row][col] = other.cells[row % other.y][col % other.x]
 
     def __str__(self) -> str:
-        if len(self.string) < (self.h * self.w):
-            self.make_str()
-        return self.string
-        
-    def make_str(self):
+        assert self.draw == False, f'Frame is being drawn'
         for row in range(self.h):
             for cell in range(self.w):
                 self.string += str(self.cells[row][cell])
+        return self.string
 
-    class Draw:
-        """ Methods for drawing frames easier """
-        def __init__(self, parent: 'Frame'):
-            self.self = parent
+class Draw:
+    """ Methods for drawing frames easier """
+    def __init__(self, parent: 'Frame'):
+        self.self = parent
+        self.self.draw = True
 
-        def put_sprite(self, sprite: 'Sprite', position: Tuple[int, int]):
-            sprite.place(self.self, position)
+    def put_sprite(self, sprite: 'Sprite', position: Tuple[int, int]):
+        assert self.self.draw == True, f'Frame is not drawable'
+        self.self + sprite
 
-        def fill(self, fill_char: str):
-            for row in range(self.self.h):
-                for col in range(self.self.w):
-                    self.self.cells[row][col].set_value(fill_char)
+    def fill(self, fill_char: str):
+        assert self.self.draw == True, f'Frame is not drawable'
+        for row in range(self.self.h):
+            for col in range(self.self.w):
+                self.self.cells[row][col].set_value(fill_char)
+
+    def stop_drawing(self):
+        self.self.draw = False 
 
 class Sprite(Frame):
     """ Collection of characters forming a larger unit """
-    def __init__(self, size: Tuple[int, int], chars: str, draw: bool = False):
-        super().__init__(size, draw)
+    def __init__(self, size: Tuple[int, int], chars: str, pos: Tuple[int, int], name = 'Sprite'):
+        super().__init__(size)
+        self.name = name
+        self.string = chars
+        self.x, self.y = pos
+        chars = list(chars)
         for row in range(self.h):
             for col in range(self.w):
-                self.cells[row][col].set_value(chars.pop(0))
+                try:
+                    new_value = chars.pop(0)
+                    self.cells[row][col].set_value(new_value)
+                except IndexError as e:
+                    log.debug(e)
+                    self.cells[row][col].set_value(new_value)
 
-    def place(self, frame: Frame, position: Tuple[int, int]) -> Frame:
-        self.x, self.y = position
-        frame + self
+class Scene(Frame):
+
+    def __init__(self, size: Tuple[int, int], sprites: List[Sprite], name = "Scene"):
+        super().__init__(size)
+        self.view = False
+        self.name = name
+        try:
+            self.sprites = sprites
+            for sprite in sprites:
+                self.put_sprite(sprite)
+        except IndexError:
+            self.sprites = []
+            log.debug('No input sprites')
+
+    def __repr__(self):
+        return f'Scene.{self.name}'
+
+    def put_sprite(self, sprite: Sprite):
+        self + sprite
 
 class FrameBuffer(object):
     """ Holds frames for the display """
@@ -166,7 +201,7 @@ class Display:
     def clear(self):
         os.system('cls')
 
-    def print(self, word_list: List[str]):
+    def print_from_instruction(self, word_list: List[str]):
         string = ''
         for word in word_list:
             string += f'{word} '
@@ -174,8 +209,13 @@ class Display:
         #self.clear()
         print(string)
 
+def hide_logs():
+    log.setLevel(logging.CRITICAL)
+
 if __name__ == '__main__':
+    from StationKeeper import Character
     try:
+        hide_logs()
         address = ('localhost', 1000)
         auth = b'password'
         with Listener(address) as listener:
@@ -189,22 +229,26 @@ if __name__ == '__main__':
         'update': display.update,
         'resize': display.resize,
         'clearBuffer': display.buffer.clear,
-        'print': display.print,
-        'clear': display.clear
+        'print': display.print_from_instruction,
+        'clear': display.clear,
+        'hideLogs': hide_logs
         }
         
         def instruction_handle(instruction: Instruction):
             task = instruction.get_task()
             args = instruction.get_args()
             if task in TASK:
-                try:
-                    TASK[task]()
-                except Exception as e:
-                    TASK[task](args)
-                    log.debug(e)
+                if args != None:
+                    try:
+                        TASK[task](*args)
+                        return
+                    except Exception as e:
+                        log.debug(e)
+                TASK[task]()
 
+        log.setLevel(logging.DEBUG)
+        
         while True:
-            log.setLevel(logging.INFO)
             instruction = conn.recv()
             instruction_handle(instruction)
     
@@ -212,4 +256,3 @@ if __name__ == '__main__':
         log.debug('Exiting...')
         time.sleep(2)
         os.system('exit')
-        
