@@ -17,7 +17,7 @@ from Instruction import *
 import logging
 import os
 import time
-from typing import List
+from typing import Dict, List
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -44,42 +44,44 @@ def get_input(message: str):
     log.debug('Getting input...')
     return input(message)
 
-def check_input(input: str, instruction_set = VALID_INSTRUCTION):
+def check_input(input: str, instruction_set = VALID_INSTRUCTION, message: str = 'Input: '):
     log.debug('Checking input...')
     input = input.split()
+    if input[0] == 'help':
+        return check_input(get_input(help(message)), instruction_set)
     for word in input:
         if word in instruction_set:
             if word == input[0]:
                 log.debug('Valid command!')
                 return input
-            return check_input(get_input('Incorrect format, please try again\nInput: '), instruction_set)
-    return check_input(get_input(f'Input not recognized, recognized inputs are {str(instruction_set)} please try again.\nInput: '),
-            instruction_set)
+            return check_input(get_input(f'Incorrect format, please try again\n{message}'), instruction_set, message)
+    return check_input(get_input(f'Input not recognized, recognized inputs are {str(instruction_set)} please try again.\n{message}'),
+            instruction_set, message)
 
 def create_instruction(input: List[str], to: str) -> Instruction:
     task = input.pop(0)
+    for argument_num in range(len(input)):
+        try:
+            input[argument_num] = int(input[argument_num])
+        except Exception as e:
+            log.debug(e)
+    args = tuple(input)
     log.debug('Instruction created...')
+    log.debug(args)
     if task == 'stop':
         return Instruction(task)
-    return Instruction(task, (input, ), to)
+    return Instruction(task, args, to)
 
-def send_input(message: str = 'Input: ', to = 'displayEngine'):
-    busy.value = True
-    instruction = get_input(message)
-    instruction = check_input(instruction)
-    instruction = create_instruction(instruction, to)
-    log.debug('Input retrieved!')
-    conn.send(instruction)
-    log.debug('Input sent!')
-    busy.value = False
 
 def instruction_get(send_queue: Queue, connection: List[Connection], busy_bool: c_bool, run_bool: c_bool):
     queue: List[Instruction] = []
     while True:
         busy = busy_bool.value
-        #log.debug('Getting instructions...')
-        conn = wait(connection, 0.1)
-        if len(conn) > 0:
+        log.debug('Getting instructions...')
+        log.debug(busy)
+        conn = wait(connection, 0.5)
+        try:
+            log.debug('trying...')
             try:
                 instruction: Instruction = conn[0].recv()
                 log.debug(conn)
@@ -88,13 +90,18 @@ def instruction_get(send_queue: Queue, connection: List[Connection], busy_bool: 
                 os.system('exit')
                 run_bool.value = False
                 quit()
+            except Exception as e:
+                log.debug(e)
             log.debug(instruction)
             log.debug(busy)
+            log.debug('testing if busy true')
             if busy == True:
                 queue.append(instruction)
                 log.debug('Instruction queue appended')
                 continue
+            log.debug('testing if busy false')
             if busy == False:
+                log.debug('busy is false')
                 try:
                     log.debug('Trying to put instruction on queue...')
                     if len(queue) > 0:
@@ -117,23 +124,49 @@ def instruction_get(send_queue: Queue, connection: List[Connection], busy_bool: 
                     log.debug(e)
                     continue
             log.debug('Didn\'t perform any tasks')
+        except IndexError:
+            log.debug('index error')
+            continue
+        except Exception as e:
+            log.debug((e, 'instruction_get'))
+            continue
+
+def change_title(new_title: str):
+    os.system(f'title {new_title}')
 
 def hide_logs():
     log.setLevel(logging.CRITICAL)
-
+   
 if __name__ == '__main__':
     address = ('localhost', 2000)
     auth = b'password'
     with Listener(address) as listener:
         conn = listener.accept()
         log.debug(f'Connection accepted from {listener.last_accepted}...')
-        log.debug(conn.recv())
-
-    TASK = {
-        'getFromPrompt': send_input,
-        'hideLogs': hide_logs
-    }
-
+        tasks = conn.recv()
+        
+    def send_input(message: str = 'Input: ', to = 'displayEngine', instruction_set: List = tasks):
+        busy.value = True
+        instruction = get_input(message)
+        instruction = check_input(instruction, instruction_set, message)
+        instruction = create_instruction(instruction, to)
+        log.debug('Input retrieved!')
+        conn.send(instruction)
+        log.debug('Input sent!')
+        busy.value = False
+    
+    TASK = {}
+    TASK['getFromPrompt']= send_input
+    TASK['changeTitle'] = change_title
+    TASK['hideLogs'] = hide_logs
+    
+    def help(input_message: str):
+        help_message = 'Here are the commands that you can currently use\n\n'
+        for key in tasks:
+            help_message += f'{key}\n'
+        help_message += f'{input_message}'
+        return help_message
+    
     def instruction_handle(instruction: Instruction):
         """ Separate procees to handle instructions """
         assert isinstance(instruction, Instruction), f'Cannot handle {type(instruction)}!'
@@ -148,7 +181,7 @@ if __name__ == '__main__':
                 log.debug('Task is in Task')
                 if args == None:
                     TASK[task]()
-                    log.debug('Task handled')
+                    log.debug('Task with no args handled')
                     return
                 TASK[task](*args)
                 log.debug('Task handled')

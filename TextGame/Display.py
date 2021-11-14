@@ -117,7 +117,7 @@ class Sprite(Frame):
                     new_value = chars.pop(0)
                     self.cells[row][col].set_value(new_value)
                 except IndexError as e:
-                    log.debug(e)
+                    log.debug((e, 'Sprite init'))
                     self.cells[row][col].set_value(new_value)
 
 class Scene(Frame):
@@ -213,7 +213,7 @@ def hide_logs():
     log.setLevel(logging.CRITICAL)
 
 if __name__ == '__main__':
-    from StationKeeper import Character
+    from StationKeeper import *
     try:
         hide_logs()
         address = ('localhost', 1000)
@@ -243,11 +243,11 @@ if __name__ == '__main__':
                         TASK[task](*args)
                         return
                     except Exception as e:
-                        log.debug(e)
+                        log.debug((e, 'instruction handle'))
                 TASK[task]()
 
         log.setLevel(logging.DEBUG)
-        
+        Display
         while True:
             instruction = conn.recv()
             instruction_handle(instruction)

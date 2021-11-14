@@ -139,9 +139,18 @@ class SceneEditor(Scene):
         self.background = bg_str
         self.name = 'scene_editor'
 
+    def start(self):
+        while True:
+            self.queue.instruction_put(Instruction('getFromPrompt', ('Scene Editor: ', 'game', ), 'input0'))
+            log.debug('gettingInstructions')
+            instruction = self.queue.parent_queue.get(True)
+            assert isinstance(instruction, Instruction), f'{type(instruction)} is not Instruction object'
+            instruction_handle(instruction)
+
     def set_view(self, view_state):
-        self.view = view_state
-        if view_state:
+        if view_state == 'True':
+            self.view = True
+        if self.view:
             self.update()
 
     def update(self, to = 'display0'):
@@ -152,9 +161,14 @@ class SceneEditor(Scene):
             chars = '='
         else:
             chars = '||'
+        size_x = int(size_x)
+        size_y = int(size_y)
+        pos_x = int(pos_x)
+        pos_y = int(pos_y)
         wall = Wall((size_y, size_x), chars, (pos_x, pos_y))
         self.scene.put_sprite(wall)
         self.sprites.append(wall)
+        log.debug('Placed wall...')
         if self.view:
             self.queue.instruction_put(Instruction('putFrame', (self.scene, ), 'display0'))
             self.update('display0')
@@ -182,7 +196,7 @@ class SceneEditor(Scene):
         self.characters.append(character)
         self.scene.put_sprite(character)
         if self.view:
-            self.queue.instruction_put(Instruction('putFrame', self.scene, 'display0'))
+            self.queue.instruction_put(Instruction('putFrame', (self.scene, ), 'display0'))
             self.update('display0')
 
     def make_character(self):
@@ -195,10 +209,7 @@ class SceneEditor(Scene):
                 self.scene.cells[character.y + pos_y][character.x + pos_x].set_value(character.string)
         if self.view:
             self.queue.instruction_put(Instruction('putFrame', (self.scene, ), 'display0'))
-            self.update('display0')
-
-def instruction_handle(instruction):
-    log.debug(f'Write code to handle instruction you nut\n{instruction}')
+            self.update('display0')       
 
 def instruction_loop(queue: Queue):
     while True:
@@ -213,29 +224,17 @@ def instruction_loop(queue: Queue):
             continue
 
 if __name__ == '__main__':
+    
     ctx = get_context()
     queue = Queue(20, ctx = ctx)
     size = (50, 180)
     game = Instance('Station Keeper', size, queue, 0.01, 2)
-    game.hide_logs()
-    game.default_start()
-    get = Process(target = instruction_loop, args = (queue, ))
-    get.start()
-    
     Jones = Character('Jones', 'A', 54, ('he', 'him', 'his'), (1, 1), (15.0, 20.0, .1, 0.99, 0),(10, 10.0, 6.5))
     test_scene = Scene(size, [])
     scene_edit = SceneEditor(test_scene, game)
     scene_edit.add_character(Jones)
     scene_edit.update('display0')
-
-    VALID_INSTRUCTION = ['putSprite',
-                         'makeSprite', 
-                         'makeCharacter',
-                         'makeWall',
-                         'listSprites', 
-                         'setView',
-                         'moveCharacter']
-
+    
     TASK = {
         'putSprite': scene_edit.put_sprite,
         'makeSprite': scene_edit.make_sprite,
@@ -243,47 +242,20 @@ if __name__ == '__main__':
         'makeWall': scene_edit.make_wall,
         'listSprites': scene_edit.get_sprites,
         'moveCharacter': scene_edit.move_character,
-        'setView': scene_edit.set_view
+        'setView': scene_edit.set_view,
     }
 
-    message = 'Input: '
-    log.debug(TASK)
-    while True:
-        instruction: List = check_input(get_input(message), VALID_INSTRUCTION)
-        message = 'Input: '
-        if instruction[0] in VALID_INSTRUCTION:
-            task = instruction.pop(0)
-            if task == 'makeWall':
-                try:
-                    log.debug(TASK[task])
-                    var_1 = int(instruction[0])
-                    var_2 = int(instruction[1])
-                    var_3 = int(instruction[2])
-                    var_4 = int(instruction[3])
-                    TASK[task](var_1, var_2, var_3, var_4)
-                except IndexError as e:
-                    message = 'makeWall needs 4 arguments\nInput: '
-                    log.debug(e)
-                continue
-            if task == 'listSprites':
-                message = str(TASK[task]()) + '\nInput:'
-                continue
-            if task == 'moveCharacter':
-                try:
-                    TASK[task](
-                        instruction[0],
-                        int(instruction[1]),
-                        int(instruction[2])
-                    )
-                except IndexError as e:
-                    message = 'moveCharacter needs 3 arguments\nInput: '
-                continue
-            if task == 'setView':
-                if instruction[0].lower() == 'true':
-                    view_bool = True
-                else:
-                    view_bool = False
-                TASK[task](view_bool)
-                continue
+    #game.hide_logs()
+    game.default_start(list(TASK.keys()))
+    #get = Process(target = instruction_loop, args = (queue, ))
+    #get.start()
 
-        
+    def instruction_handle(instruction):
+        assert isinstance(instruction, Instruction), f'{type(instruction)} is not an Instrtuction object'
+        task, args = instruction.get()
+        assert task in TASK.keys(), f'{task} is not in TASK'
+        log.debug(task)
+        log.debug(args)
+        TASK[task](*args)
+
+    scene_edit.start()

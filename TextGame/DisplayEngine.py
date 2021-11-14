@@ -58,7 +58,7 @@ class Instance:
             self.inputs.append(Client(address))
             self.i_count += 1
 
-    def default_start(self):
+    def default_start(self, inputs_init = dict()):
         log.info('Default start...')
         self.create_UI('Display.py')
         self.create_UI('InputScreen.py')
@@ -67,7 +67,7 @@ class Instance:
         self.connect('displays', 1000)
         log.debug('input connected...')
         self.displays[0].send((self.size, self.title))
-        self.inputs[0].send('Connection succesfull')
+        self.inputs[0].send(inputs_init)
         log.debug('Sent input test')
         get = Process(target = self.instruction_loop, args = (self.queue, ))
         get.start()
@@ -101,6 +101,8 @@ class Instance:
         """ Sends instructions to and from where they need to go """
         assert isinstance(instruction, Instruction), f'Cannot handle {type(instruction)}'
         destination = instruction.destination()
+        log.debug(destination)
+        log.debug(instruction)
         if 'input' in destination:
             num = int(destination[-1])
             self.inputs[num].send(instruction)
@@ -122,6 +124,7 @@ class Instance:
         if 'game' in destination:
             self.parent_queue.put(instruction)
             log.debug(f'Sent to game')
+            log.debug(instruction.get())
             return
         log.debug(f'Did not recognize destination {destination}')        
 
